@@ -8,7 +8,7 @@ Useful functions to translate occupancy data files to charging schedules for EV 
 """
 import pandas as pd
 import numpy as np
-
+import matplotlib.pyplot as plt
 
 def read_occupancy(file, idx_time='sec'):
     """ Reads a csv file with occupancy profiles.
@@ -133,3 +133,31 @@ def compute_trip_distances(schedule, work_dist, short_dist, other_dist):
 
 def set_distances_to_charging_sessions(schedule):
     return schedule
+
+
+def plot_arr_dep_hist(hist, binsh=np.arange(0,24.5,0.5), ftitle=''):
+    """ Plots arrival and departure histogram
+    """
+    f, (ax, ax2) = plt.subplots(1,2)
+    i = ax.imshow(hist.T/hist.sum().sum(), origin='lower', extent=(0,24,0,24))
+    ax.set_title('Distribution of sessions')
+    ax.set_xlabel('Start of charging sessions')
+    ax.set_ylabel('End of charging sessions')
+    ax.set_xticks(np.arange(0,25,2))
+    ax.set_yticks(np.arange(0,25,2))
+    ax.set_xticklabels(np.arange(0,25,2))
+    ax.set_yticklabels(np.arange(0,25,2))
+    plt.colorbar(i, ax=ax)
+    
+    ax2.bar((binsh[:-1]+binsh[1:])/2, hist.sum(axis=1)/hist.sum().sum(), width=0.5, label='Arrivals')
+    ax2.bar((binsh[:-1]+binsh[1:])/2, -hist.sum(axis=0)/hist.sum().sum(), width=0.5, label='Departures')
+    ax2.set_xlim(0,24)
+    ax2.set_xticks(np.arange(0,25,2))
+    ax2.set_xticklabels(np.arange(0,25,2))
+    ax2.set_title('Arrival and departure distribution')
+    ax2.set_xlabel('Time [h]')
+    ax2.set_ylabel('Distribution')
+    ax2.legend()
+    ax2.grid()
+    f.suptitle(ftitle)
+    f.set_size_inches(11.92,4.43)

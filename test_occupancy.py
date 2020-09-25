@@ -9,16 +9,20 @@ Created on Tue Sep  8 11:28:05 2020
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import util
+#import util
 import util_occupancy
 
+
+# CHANGE THIS TO SELECT THE OCCUPANCY PROFILES FOLDERE/FILE
 folder = r'c:\user\U546416\Documents\PhD\Data\KULeuven\OccupancyProfiles\\'
 #file = 'Occupancy.csv'
 file = 'Occupancy_1000_cont.csv'
 
+# You get pandas dataframe of occupancy, and series with Member type (FTE, etc) and household number
 occupancy, type_member, household = util_occupancy.read_occupancy(folder + file) 
 
-# First column is in seconds: Transforming to minutes
+#
+allusers =  ['FTE', 'PTE', 'Retired', 'Unemployed', 'School']
 activeusers = ['FTE', 'PTE', 'Retired', 'Unemployed']
 evusers = type_member[type_member.isin(activeusers)].index 
 evocc = occupancy[evusers]
@@ -56,7 +60,7 @@ evocc = occupancy[evusers]
 ##plt.xticks(ticks, tickslab)
 
 #%% Total out time
-# out time per day (should separate for type of people and wd/we)
+# out time per day (should separate for type of people and wd/we)?
 
 # ID of weekend weekday
 wd = [0, 5*24*6]
@@ -84,10 +88,10 @@ x = np.arange(0,24,1/6)
 
 for j, d in enumerate([wd, sat, sun]):
     plt.subplots()
-    for u in activeusers:
+#    for u in activeusers:
+    for u in allusers:
         users = type_member[type_member == u].index
         prof = (occupancy[users].iloc[d[0]*dt:d[1]*dt] < 3).mean(axis=1)
-        print(u, prof.shape)
         if d[1]-d[0]>1:
             prof = prof.values.reshape(d[1]-d[0],dt).mean(axis=0)
         plt.plot(x, prof, label=u)
@@ -96,7 +100,7 @@ for j, d in enumerate([wd, sat, sun]):
     prof  = (occupancy[users].iloc[d[0]*dt:d[1]*dt] < 3).mean(axis=1)
     if d[1]-d[0]>1:
             prof = prof.values.reshape(d[1]-d[0],dt).mean(axis=0)
-    plt.plot(x, prof, label='All active users')
+    plt.plot(x, prof, '--', linewidth=3, label='All active users')
     # format
     plt.title('Average profile at home, ' + ['weekday', 'saturday', 'sunday'][j] )
     plt.xlabel('Time of day [h]')
@@ -125,7 +129,7 @@ bins = np.arange(0,24.5,0.5)
 for w in days:
     dff = df[(df.DoW == w) & (df.AtHome) & (df.DeltaTime > 2)]
     h, _, _ = np.histogram2d(dff.ArrTime, dff.DepTime, bins=bins)
-    util.plot_arr_dep_hist(h, binsh=bins, ftitle='Arrival and Departure distributions, ' + w)
+    util_occupancy.plot_arr_dep_hist(h, binsh=bins, ftitle='Arrival and Departure distributions, ' + w)
     
 ##%% Plot arrival departures
 #days = ['Weekday', 'Sat', 'Sun']
