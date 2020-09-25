@@ -111,8 +111,10 @@ for j, d in enumerate([wd, sat, sun]):
 
 
 #%% Print general data and plot household histogram
-print(type_member.value_counts()/len(type_member))
+print('Share of profiles from total, {} unique profiles'.format(len(type_member)))
+print(type_member.value_counts()/len(type_member)*100)
 
+plt.figure()
 household.value_counts().hist(bins=np.arange(1,7))
 #plt.title('Number of persons per household')
 plt.xlabel('Number of persons per household')
