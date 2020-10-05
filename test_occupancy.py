@@ -16,7 +16,7 @@ import util_occupancy
 # CHANGE THIS TO SELECT THE OCCUPANCY PROFILES FOLDERE/FILE
 folder = r'c:\user\U546416\Documents\PhD\Data\KULeuven\OccupancyProfiles\\'
 #file = 'Occupancy.csv'
-file = 'Occupancy_1000_cont.csv'
+file = 'Occupancy_1000_good.csv'
 
 # You get pandas dataframe of occupancy, and series with Member type (FTE, etc) and household number
 occupancy, type_member, household = util_occupancy.read_occupancy(folder + file) 
@@ -122,8 +122,16 @@ plt.ylabel('Frequency')
 #%%Creating data frame of charging and trip sessions, 
 df = util_occupancy.do_schedule(occupancy, type_member)
 
-#df.to_csv(folder + 'sessions_1000_cont.csv')
+#df.to_csv(folder + 'sessions_1000_good.csv')
 
+#%% Add distance based on Van Roy
+df = pd.read_csv(folder + 'sessions_1000_good.csv', index_col=0)
+
+import util
+util.self_reload(util_occupancy)
+util_occupancy.set_distances_to_schedule(df, verbose=True)
+
+#df.to_csv(folder + 'sessions_1000_good.csv')
 #%% Plot arrival & departures to/from home
 days = ['Weekday', 'Sat', 'Sun']
 bins = np.arange(0,24.5,0.5)
@@ -171,3 +179,37 @@ for w in days:
     ax2.grid()
     f.suptitle('Trip duration distribution, {}'.format(w))
     f.set_size_inches(11.92,4.43)
+    
+    
+#%% Analysis of trip distances
+    
+f,ax = plt.subplots(1,2)
+# plot 1, histograms of trip distances
+dx=2
+bins = np.arange(0,101,dx)
+trips = ['Work', 'Shopping', 'Recreation', 'Other']
+plt.sca(ax[0])
+x = np.arange(dx/2,100,dx)
+hc=0
+for i in trips:
+    h, _ = np.histogram(df[(~df.AtHome) & (df.TripMotif == i)].TripDistance, bins=bins)
+    pkm = df[(~df.AtHome) & (df.TripMotif == i)].TripDistance.sum() / df.TripDistance.sum()*100
+    plt.bar(x, h, width=dx, bottom=hc, label=i+' ({:.1f}% of kms)'.format(pkm))
+    hc += h
+plt.legend()
+plt.xlabel('Trip distance [km]')
+plt.ylabel('Frequency')
+plt.title('Trip distance distribution')
+
+plt.sca(ax[1])
+
+userdist = df[~df.AtHome].groupby('User').TripDistance.sum() / 7
+avgd = userdist.mean()
+h, _ = np.histogram(userdist, bins=bins)
+plt.bar(x, h, width=5)
+plt.axvline(avgd, color='r', linestyle='--')
+plt.text(x=avgd+2, y=h.max()*0.8, s='Average daily distance {:.1f} km'.format(avgd))
+plt.title('User avg daily distance distribution')
+plt.xlabel('Average daily distance [km]')
+plt.ylabel('Frequency')    
+
