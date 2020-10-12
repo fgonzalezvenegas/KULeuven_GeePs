@@ -11,6 +11,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.stats as stats
 
+def index_to_dh(df, idx_time='sec'):
+    # datetime
+    if idx_time == 'sec':
+        dt = 60*60
+    else:
+        dt = 60
+    day = pd.Series([int(i//(dt*24)) for i in df.index], index=df.index)
+    hour = pd.Series([np.round((i/(dt))%24,3) for i in df.index], index=df.index)
+    
+    # chaging index
+    df['day'] = day
+    df['hour'] = hour
+    df.set_index(['day', 'hour'], inplace=True)
+    
+
 def read_occupancy(file, idx_time='sec'):
     """ Reads a csv file with occupancy profiles.
     Returns a :
@@ -31,17 +46,7 @@ def read_occupancy(file, idx_time='sec'):
     occupancy = occupancy.astype(float)
     occupancy.index = occupancy.index.astype(float)
     # datetime
-    if idx_time == 'sec':
-        dt = 60*60
-    else:
-        dt = 60
-    day = pd.Series([int(i//(dt*24)) for i in occupancy.index], index=occupancy.index)
-    hour = pd.Series([(i/(dt))%24 for i in occupancy.index], index=occupancy.index)
-    
-    # chaging index
-    occupancy['day'] = day
-    occupancy['hour'] = hour
-    occupancy.set_index(['day', 'hour'], inplace=True)
+    index_to_dh(occupancy, idx_time='sec')
     
     return occupancy, type_member, household
 
@@ -53,7 +58,7 @@ def get_users(type_member, users=None):
         users = ['FTE', 'PTE', 'Retired', 'Unemployed']
     return type_member[type_member.isin(users)].index 
 
-def do_schedule(occupancy, type_member, verbose=False):
+def do_schedule(occupancy, type_member, verbose=False, weekday_ini=0):
     # Arrival and departure matrix: +1 means departure (from home), -1 arrival, 0 change in state but always at home
     arrdep = ((occupancy == 3)*1).diff()
     
@@ -101,9 +106,9 @@ def do_schedule(occupancy, type_member, verbose=False):
             dt = (outday-inday)*24 + (outtime-intime)
             if dt < 0:
                 dt += ndays*24
-            if inday == 5:
+            if (inday + weekday_ini)%7 == 5:
                 day = 'Sat'
-            elif inday == 6:
+            elif (inday + weekday_ini)%7 == 6:
                 day = 'Sun'
             else:
                 day = 'Weekday'
@@ -114,19 +119,38 @@ def do_schedule(occupancy, type_member, verbose=False):
     df = pd.DataFrame(df, columns=cols)
     return df
 
-def do_charging_sessions(schedule):
+def get_charging_sessions(schedule):
+    """ It returns only charging sessions
     """
-    """
-    if not ('TripDist' in schedule):
+    if not ('TripDistance' in schedule):
         set_distances_to_schedule(schedule)
+    if schedule.TripDistance.isnull().sum():
+        set_dist_to_charging_sessions(schedule)
     chsessions = schedule[schedule.AtHome & ~(schedule.UserType == 'School')]
     chsessions = chsessions.drop(['DeltaTime', 'DoW', 'AtHome'], axis=1, inplace=False)
     return chsessions
 
-
+def set_dist_to_charging_sessions(schedule):
+    """ It sets the TripDistance parameter that was only on away rows (AtHome==False)
+    to at home rows based on previous trip
+    """
+    dists={}
+    usersame = schedule.User.astype(float).diff()==0
+    idxhomesame = schedule[usersame & schedule.AtHome].index
+    schedule.TripDistance[idxhomesame] = schedule.TripDistance[idxhomesame-1]
+    
+    homediff = schedule[(~usersame) & (schedule.AtHome)]
+    dists={}
+    for i, t in homediff.iterrows():
+        dists[i] = schedule[(schedule.User == t.User) & ~(schedule.AtHome)].TripDistance.iloc[-1]
+    dists = pd.Series(dists)
+    schedule.TripDistance.loc[dists.index] = dists
+    
 def compute_trip_distances(schedule, dist_distrib=None,
                            avg_v=42, verbose=False):
-    """
+    """ Computes distances for each trip in schedule, given the distances distributions
+    distance distribution is a dictionnary with keys 'TripMotif' types and values 
+    dictionnaries with keys 'distr', a scipy.stats distribution, and a scale factor
     """
     # Default option is use VanRoy
     if dist_distrib is None:
@@ -134,6 +158,10 @@ def compute_trip_distances(schedule, dist_distrib=None,
         dx = stats.lognorm(s=1.067,scale=8.543)
         dist_distrib = dict(Work=dict(distr=dx,
                                       scale=1.37),
+                            Business=dict(distr=dx,
+                                          scale=1.92),
+                            Visits=dict(distr=dx,
+                                          scale=0.99),
                             Shopping=dict(distr=dx,
                                           scale=0.51),
                             Recreation=dict(distr=dx,
@@ -162,11 +190,12 @@ def compute_trip_distances(schedule, dist_distrib=None,
         
     if verbose:
         print('Computing other trips, ntrips {}'.format(len(trips[~(trips.TripMotif == 'Work')])))
+    n=0
     for i, t in trips.iterrows():
         if t.TripMotif == 'Work':
             continue
         if verbose:
-            if n%200 == 0:
+            if n%50000 == 0:
                 print('\t{}'.format(n))
         n+=1
         # each trip has a max distance limited by total duration away
@@ -198,9 +227,11 @@ def define_trip_motif(schedule, vanroy=True): # , distance_distribs=None):
     
     if vanroy:
         # other motifs
-        othermotifs = ['Shopping', 'Recreation', 'Other'] # i dont care about the others
-        proba_motifs_wd = [0.348,0.344,0.308] #probability of each motif, normalized to sum 1
-        proba_motifs_we = [0.367,0.417,0.216]
+        othermotifs = ['Business', 'Visits', 'Shopping', 'Recreation', 'Other'] # i dont care about the others
+        proba_motifs_wd = [0.085,0.125,0.238,0.236,0.211] #probability of each motif, normalized to sum 1
+        proba_motifs_we = [0.021,0.193,0.285,0.324,0.169]
+        proba_motifs_wd = np.array(proba_motifs_wd)/sum(proba_motifs_wd)
+        proba_motifs_we = np.array(proba_motifs_we)/sum(proba_motifs_we)
         for i, j in motifs[motifs.isnull()].iteritems():
             motifs[i] = np.random.choice(othermotifs, p=proba_motifs_wd if trips.DoW[i]=='Weekday' else proba_motifs_we)
     else:
@@ -220,6 +251,41 @@ def set_distances_to_schedule(schedule, verbose=True):
         print('Computing distances')
     compute_trip_distances(schedule, verbose=verbose)
     return schedule
+
+def repeat_schedule(schedule, ntimes):
+    """ Repeats the schedule ntimes
+    It works only if schedule has full weeks
+    """
+    dt = schedule.ArrDay.max()+1
+    copy = schedule.copy(deep=True)
+    nsc = schedule
+    for i in range(ntimes):
+        copy.ArrDay += dt
+        copy.DepDay += dt
+        nsc = pd.concat([nsc, copy], ignore_index=True)
+    nsc.sort_values(['User','ArrDay','ArrTime'], inplace=True)
+    nsc.reset_index(inplace=True, drop=True)
+    return nsc
+
+def add_days(schedule, before, after):
+    """ Add the ndays before and after.
+    before days should be whole weeks (i.e. 7, 14..)
+    after days should be less than schedule days
+    """
+    dt = schedule.ArrDay.max()+1 # number of days 
+    # i will add the first ndays (whole weeks) before the schedule
+    copy = schedule.copy(deep=True)
+    copy.ArrDay += before
+    copy.DepDay += before
+    nsc = pd.concat([schedule[schedule.ArrDay < before], copy], ignore_index=True)
+    # now i will add after days
+    copy = schedule.copy(deep=True)
+    copy.ArrDay += before + int(np.ceil(after%7) * 7)
+    copy.DepDay += before + int(np.ceil(after%7) * 7)
+    nsc = pd.concat([nsc, copy[(copy.ArrDay>=dt+before) & (copy.ArrDay < dt+before+after)]])
+    nsc.sort_values(['User','ArrDay','ArrTime'], inplace=True)
+    nsc.reset_index(inplace=True, drop=True)
+    return nsc
 
 def plot_arr_dep_hist(hist, binsh=np.arange(0,24.5,0.5), ftitle=''):
     """ Plots arrival and departure histogram
@@ -247,3 +313,50 @@ def plot_arr_dep_hist(hist, binsh=np.arange(0,24.5,0.5), ftitle=''):
     ax2.grid()
     f.suptitle(ftitle)
     f.set_size_inches(11.92,4.43)
+
+def plot_user_avg_dist_hist(schedule, bins=np.arange(0,100,2), ax=None):
+    if ax is None:
+        plt.figure()
+    else:
+        plt.sca(ax)
+    hc=0
+    ndays = schedule.ArrDay.max()+1
+    x = (bins[:-1]+bins[1:])/2
+    dx = bins[1]-bins[0]
+    for i in schedule.UserType.unique():
+        userdist = schedule[(~schedule.AtHome) & (schedule.UserType==i)].groupby('User').TripDistance.sum() / ndays
+        avgd = userdist.mean()
+        h, _ = np.histogram(userdist, bins=bins)
+        plt.bar(x, h, bottom=hc, width=dx, label='{:15}, Avg {:.1f}km'.format(i,avgd))
+        hc +=h
+    userdist = schedule[(~schedule.AtHome)].groupby('User').TripDistance.sum() / ndays
+    avgd = userdist.mean()
+    plt.axvline(avgd, color='r', linestyle='--')
+    plt.text(x=avgd+2, y=hc.max()*0.6, s='Average daily distance {:.1f} km'.format(avgd))
+    plt.title('User average daily distance distribution')
+    plt.xlabel('Average daily distance [km]')
+    plt.ylabel('Frequency')
+    plt.xlim(0,100)
+    plt.legend()
+    
+def plot_trip_dist_hist(schedule, bins=np.arange(0,100,2), ax=None):
+    """
+    """
+    if ax is None:
+        plt.figure()
+    else:
+        plt.sca(ax)
+    trips = schedule.TripMotif.unique()    
+    hc=0
+    x = (bins[:-1]+bins[1:])/2
+    dx = bins[1]-bins[0]
+    for i in trips:
+        h, _ = np.histogram(schedule[(~schedule.AtHome) & (schedule.TripMotif == i)].TripDistance, bins=bins)
+        pkm = schedule[(~schedule.AtHome) & (schedule.TripMotif == i)].TripDistance.sum() / schedule.TripDistance.sum()*100
+        plt.bar(x, h, width=dx, bottom=hc, label='{:15} ({:.1f}% of kms)'.format(i,pkm))
+        hc += h
+    plt.legend()
+    plt.xlim(0,100)
+    plt.xlabel('Trip distance [km]')
+    plt.ylabel('Frequency')
+    plt.title('Trip distance distribution')

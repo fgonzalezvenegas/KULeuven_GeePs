@@ -187,29 +187,17 @@ f,ax = plt.subplots(1,2)
 # plot 1, histograms of trip distances
 dx=2
 bins = np.arange(0,101,dx)
-trips = ['Work', 'Shopping', 'Recreation', 'Other']
-plt.sca(ax[0])
-x = np.arange(dx/2,100,dx)
-hc=0
-for i in trips:
-    h, _ = np.histogram(df[(~df.AtHome) & (df.TripMotif == i)].TripDistance, bins=bins)
-    pkm = df[(~df.AtHome) & (df.TripMotif == i)].TripDistance.sum() / df.TripDistance.sum()*100
-    plt.bar(x, h, width=dx, bottom=hc, label=i+' ({:.1f}% of kms)'.format(pkm))
-    hc += h
-plt.legend()
-plt.xlabel('Trip distance [km]')
-plt.ylabel('Frequency')
-plt.title('Trip distance distribution')
+util_occupancy.plot_trip_dist_hist(df, bins, ax=ax[0])
 
-plt.sca(ax[1])
-
-userdist = df[~df.AtHome].groupby('User').TripDistance.sum() / 7
-avgd = userdist.mean()
-h, _ = np.histogram(userdist, bins=bins)
-plt.bar(x, h, width=5)
-plt.axvline(avgd, color='r', linestyle='--')
-plt.text(x=avgd+2, y=h.max()*0.8, s='Average daily distance {:.1f} km'.format(avgd))
-plt.title('User avg daily distance distribution')
-plt.xlabel('Average daily distance [km]')
-plt.ylabel('Frequency')    
-
+#userdist = df[~df.AtHome].groupby('User').TripDistance.sum() / 7
+#avgd = userdist.mean()
+#h, _ = np.histogram(userdist, bins=bins)
+#plt.bar(x, h, width=dx)
+#plt.axvline(avgd, color='r', linestyle='--')
+#plt.text(x=avgd+2, y=h.max()*0.8, s='Average daily distance {:.1f} km'.format(avgd))
+#plt.title('User avg daily distance distribution')
+#plt.xlabel('Average daily distance [km]')
+#plt.ylabel('Frequency')    
+util_occupancy.plot_user_avg_dist_hist(df, bins, ax[1]) 
+f.set_size_inches(10.5,4.76)
+    
