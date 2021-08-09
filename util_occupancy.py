@@ -137,7 +137,7 @@ def set_dist_to_charging_sessions(schedule):
     dists={}
     usersame = schedule.User.astype(float).diff()==0
     idxhomesame = schedule[usersame & schedule.AtHome].index
-    schedule.TripDistance[idxhomesame] = schedule.TripDistance[idxhomesame-1]
+    schedule.loc[idxhomesame,'TripDistance'] = schedule.TripDistance[idxhomesame-1]
     
     homediff = schedule[(~usersame) & (schedule.AtHome)]
     dists={}
@@ -267,6 +267,61 @@ def repeat_schedule(schedule, ntimes):
     nsc.reset_index(inplace=True, drop=True)
     return nsc
 
+def modify_schedule(schedule, blocked_times):
+    """ Modifies the schedule by suppressing charging sessions
+    that takes place during blocked_times
+    blocked_times is a list/tuple of [init hour, end hour]
+    """
+    #new schedule
+    ns = schedule.copy(deep=True)
+    # identify charging sessions between blocked_times
+    usersame = schedule.User.astype(float).diff()==0
+    to_delete = ns[(ns.ArrTime > blocked_times[0]) & 
+                   (ns.DepTime < blocked_times[1]) & 
+                   (ns.ArrDay == ns.DepDay) &
+                   (ns.AtHome) &
+                   usersame].index
+    # Modify Arrival Departure times and distance traveled of away sessions
+    newarrT = ns.ArrTime[to_delete-1]
+    newarrD = ns.ArrDay[to_delete-1]
+    newarrT.index = to_delete+1
+    newarrD.index = to_delete+1
+    newdist = pd.Series(ns.TripDistance[to_delete+1].values + ns.TripDistance[to_delete-1].values)
+    newdist.index = to_delete+1
+    # correct some problems
+    
+    to_correct = (to_delete+2)[(to_delete+2).isin(to_delete)]+1
+    corrected = {}
+    corrected_arrD = {}
+    corrected_arrT = {}
+    for i in to_correct:
+        if (i-2) in corrected:
+            corrected[i] = corrected[i-2] + schedule.TripDistance[i]
+            corrected_arrD[i] = corrected_arrD[i-2]
+            corrected_arrT[i] = corrected_arrT[i-2]
+        else:
+            corrected[i] = schedule.TripDistance[[i,i-2,i-4]].sum()
+            corrected_arrD[i] = schedule.ArrDay[i-4]
+            corrected_arrT[i] = schedule.ArrTime[i-4]
+    corrected = pd.Series(corrected)
+    corrected_arrD = pd.Series(corrected_arrD)
+    corrected_arrT = pd.Series(corrected_arrT)
+    newdist[corrected.index] = corrected
+    newarrD[corrected_arrD.index] = corrected_arrD
+    newarrT[corrected_arrT.index] = corrected_arrT
+    
+    # Setting new values
+    ns.ArrTime[newarrT.index] = newarrT
+    ns.ArrDay[newarrD.index] = newarrD
+    ns.TripDistance[newdist.index] = newdist
+    
+    # dropping old values
+    ns.drop(to_delete, inplace=True)
+    tod2 = to_delete[(to_delete-1).isin(ns.index)]-1
+    ns.drop(tod2, inplace=True)
+    ns.reset_index(inplace=True, drop=True)
+    return ns    
+
 def add_days(schedule, before, after):
     """ Add the ndays before and after.
     before days should be whole weeks (i.e. 7, 14..)
@@ -314,7 +369,7 @@ def plot_arr_dep_hist(hist, binsh=np.arange(0,24.5,0.5), ftitle=''):
     f.suptitle(ftitle)
     f.set_size_inches(11.92,4.43)
 
-def plot_user_avg_dist_hist(schedule, bins=np.arange(0,100,2), ax=None):
+def plot_user_avg_dist_hist(schedule, bins=np.arange(0,100,2), ax=None, pu=False):
     if ax is None:
         plt.figure()
     else:
@@ -323,11 +378,15 @@ def plot_user_avg_dist_hist(schedule, bins=np.arange(0,100,2), ax=None):
     ndays = schedule.ArrDay.max()+1
     x = (bins[:-1]+bins[1:])/2
     dx = bins[1]-bins[0]
+    if pu:
+        n = schedule.User.nunique()
     for i in schedule.UserType.unique():
         userdist = schedule[(~schedule.AtHome) & (schedule.UserType==i)].groupby('User').TripDistance.sum() / ndays
         avgd = userdist.mean()
         h, _ = np.histogram(userdist, bins=bins)
-        plt.bar(x, h, bottom=hc, width=dx, label='{:15}, Avg {:.1f}km'.format(i,avgd))
+        if pu:
+            h = h/n
+        plt.bar(x, h, bottom=hc, width=dx, label='{:} - Avg {:.1f} km/day'.format(i,avgd))
         hc +=h
     userdist = schedule[(~schedule.AtHome)].groupby('User').TripDistance.sum() / ndays
     avgd = userdist.mean()
@@ -335,7 +394,10 @@ def plot_user_avg_dist_hist(schedule, bins=np.arange(0,100,2), ax=None):
     plt.text(x=avgd+2, y=hc.max()*0.6, s='Average daily distance {:.1f} km'.format(avgd))
     plt.title('User average daily distance distribution')
     plt.xlabel('Average daily distance [km]')
-    plt.ylabel('Frequency')
+    if pu:
+        plt.ylabel('Distribution')
+    else:
+        plt.ylabel('Frequency')
     plt.xlim(0,100)
     plt.legend()
     

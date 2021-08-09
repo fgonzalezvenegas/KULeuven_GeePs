@@ -200,4 +200,19 @@ util_occupancy.plot_trip_dist_hist(df, bins, ax=ax[0])
 #plt.ylabel('Frequency')    
 util_occupancy.plot_user_avg_dist_hist(df, bins, ax[1]) 
 f.set_size_inches(10.5,4.76)
+
+#%% plot Avg daily distance for user class -> CIRED paper version
+df = pd.read_csv(folder + 'sessions_1000_good.csv', index_col=0)
+f,ax = plt.subplots()
+dx=2
+bins = np.arange(0,101,dx)
+
+util_occupancy.plot_user_avg_dist_hist(df[df.UserType!='School'], bins, ax, pu=True)
+plt.ylabel('Distribution')
+plt.title('')
+f.tight_layout()
+f.set_size_inches(6.66,  3.76)
+f.savefig(r'c:\user\U546416\Documents\PhD\Data\KULeuven\EVprofiles\avg_daily_dist.png')
+f.savefig(r'c:\user\U546416\Documents\PhD\Data\KULeuven\EVprofiles\avg_daily_dist.pdf')
+
     
